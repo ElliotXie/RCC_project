@@ -4,10 +4,11 @@ library(dplyr)
 library(ggplot2)
 library(viridis)
 
+
 ##this is the final version
 
-huge_merge=readRDS("./huge_merge_final.RDS")
-huge_merge_pro=readRDS("./huge_merge_pro_final.RDS")
+huge_merge=readRDS("huge_merge_final.RDS")
+huge_merge_pro=readRDS("huge_merge_pro_final.RDS")
 
 unique_celltypes <- unique(huge_merge$celltype)
 unique_TMACores <- c("All",unique(huge_merge$TMACore))
