@@ -1,52 +1,55 @@
 library(shiny)
 library(shinythemes)
+library(dplyr)
 library(ggplot2)
 library(viridis)
-library(dplyr)
 
+##this is the final version
 
-huge_merge=readRDS("./huge_merge.RDS")
-huge_merge_pro=readRDS("./huge_merge_pro.RDS")
+huge_merge=readRDS("./huge_merge_final.RDS")
+huge_merge_pro=readRDS("./huge_merge_pro_final.RDS")
 
-
-
-##this is the current final version
-
-unique_celltypes <- unique(huge_merge$celltype.x)
-unique_TMACores <- c("All",unique(huge_merge$TMACore.x))
-unique_Images <- c("All",unique(huge_merge$Image.x))
+unique_celltypes <- unique(huge_merge$celltype)
+unique_TMACores <- c("All",unique(huge_merge$TMACore))
+unique_Images <- c("All",unique(huge_merge$Image))
 unique_markers <-unique(huge_merge$marker)
-unique_patient = c("All",unique(huge_merge$Parent))
+unique_patient = c("All",unique(huge_merge$Patient_ID))
 
-
-visualize_cell_expression <- function(data, celltype, source_TMA = NULL, source_Image = NULL, marker_to_plot = "CD8", point_size=2, parent_filter = NULL) {
+visualize_cell_expression <- function(data, celltype, source_TMA = NULL, source_Image = NULL, marker_to_plot = "CD8", point_size=2, parent_filter = NULL, upper=0.95) {
   
   # Filter data based on celltype and source
   filtered_data <- data
   
   if(!is.null(parent_filter) && parent_filter != "All") {
-    filtered_data <- filtered_data %>% filter(Parent == parent_filter)
-  } else {
-    if(!is.null(source_TMA)) {
-      filtered_data <- filtered_data %>% filter(TMACore.x == source_TMA)
-    }
-    
-    if(!is.null(source_Image)) {
-      filtered_data <- filtered_data %>% filter(Image.x == source_Image)
-    }
+    filtered_data <- filtered_data %>% filter(Patient_ID == parent_filter)
+  } 
+  
+  if(!is.null(source_TMA) && source_TMA != "All") {
+    filtered_data <- filtered_data %>% filter(TMACore == source_TMA)
   }
+  
+  if(!is.null(source_Image) && source_Image != "All") {
+    filtered_data <- filtered_data %>% filter(Image == source_Image)
+  }
+  
   
   if(!is.null(marker_to_plot)) {
     filtered_data <- filtered_data %>% filter(marker == marker_to_plot)
   }
   
   # Define the shape based on the target celltype
-  filtered_data$shape <- ifelse(filtered_data$celltype.x == celltype, "Target", "Other")
+  filtered_data$shape <- ifelse(filtered_data$celltype == celltype, "Target", "Other")
+  
+  # Determine color scale limits
+  color_lower_limit <- min(filtered_data$expression, na.rm = TRUE)
+  
+  # Set the upper limit to the specified quantile (default is 95%)
+  color_upper_limit <- quantile(filtered_data$expression, upper, na.rm = TRUE)
   
   # Create the plot
   g <- ggplot(filtered_data, aes(x = X, y = Y)) +
     geom_point(aes(color = expression), size = point_size) +
-    scale_color_viridis_c(limits = range(filtered_data$expression, na.rm = TRUE), 
+    scale_color_viridis_c(limits = c(color_lower_limit, color_upper_limit), 
                           option = "viridis", end = 0.9) +
     labs(title = paste("Expression of", marker_to_plot, "in", celltype),
          x = "X Coordinate",
@@ -54,10 +57,14 @@ visualize_cell_expression <- function(data, celltype, source_TMA = NULL, source_
          color = "Expression Level") +
     facet_wrap(~ shape, ncol = 1) +
     theme_light() +
-    theme(legend.position = "bottom", legend.title = element_text(face = "bold"), legend.text = element_text(face = "italic"), aspect.ratio = 1)
+    theme(legend.position = "bottom", 
+          legend.title = element_text(face = "bold"), 
+          legend.text = element_text(face = "italic")) +
+    coord_fixed(ratio = 1)
   
   return(g)
 }
+
 
 visualize_cell_expression_pro <- function(data, celltype, source_TMA = NULL, source_Image = NULL, marker_to_plot = "CD8", point_size = 2, parent_filter = NULL) {
   
@@ -65,15 +72,16 @@ visualize_cell_expression_pro <- function(data, celltype, source_TMA = NULL, sou
   filtered_data <- data
   
   if(!is.null(parent_filter) && parent_filter != "All") {
-    filtered_data <- filtered_data %>% filter(Parent == parent_filter)
-  } else {
-    if(!is.null(source_TMA)) {
-      filtered_data <- filtered_data %>% filter(TMACore.x == source_TMA)
-    }
-    
-    if(!is.null(source_Image)) {
-      filtered_data <- filtered_data %>% filter(Image.x == source_Image)
-    }
+    filtered_data <- filtered_data %>% filter(Patient_ID == parent_filter)
+  } 
+  
+  
+  if(!is.null(source_TMA) && source_TMA != "All") {
+    filtered_data <- filtered_data %>% filter(TMACore == source_TMA)
+  }
+  
+  if(!is.null(source_Image) && source_Image != "All") {
+    filtered_data <- filtered_data %>% filter(Image == source_Image)
   }
   
   if(!is.null(marker_to_plot)) {
@@ -86,7 +94,7 @@ visualize_cell_expression_pro <- function(data, celltype, source_TMA = NULL, sou
                                    labels = c("<=0.5", ">0.5", ">0.6", ">0.7", ">0.8"))
   
   # Define the shape based on the target celltype
-  filtered_data$shape <- ifelse(filtered_data$celltype.x == celltype, "Target", "Other")
+  filtered_data$shape <- ifelse(filtered_data$celltype == celltype, "Target", "Other")
   
   
   # Create the plot
@@ -103,17 +111,26 @@ visualize_cell_expression_pro <- function(data, celltype, source_TMA = NULL, sou
   
   return(g)
 }
-
+# UI Definition
 ui <- fluidPage(
-  theme = shinytheme("flatly"),  
+  theme = shinytheme("flatly"),
   titlePanel("Cell Expression Visualization"),
   
   sidebarLayout(
     sidebarPanel(
+      radioButtons("selectMode", "Choose Selection Mode:",
+                   choices = c("Patient & TMA Core", "Image"), 
+                   selected = "Patient & TMA Core", inline = TRUE),
+      conditionalPanel(
+        condition = "input.selectMode == 'Patient & TMA Core'",
+        selectInput("parent_filter", "Select Patient:", unique_patient),
+        selectInput("source_TMA", "Select TMA Core:", unique_TMACores)
+      ),
+      conditionalPanel(
+        condition = "input.selectMode == 'Image'",
+        selectInput("source_Image", "Select Image:", unique_Images)
+      ),
       selectInput("celltype", "Select Cell Type:", unique_celltypes),
-      selectInput("source_TMA", "Select TMA Core:", unique_TMACores),
-      selectInput("source_Image", "Select Image:", unique_Images),
-      selectInput("parent_filter", "Select Parent:", unique_patient),
       selectInput("marker_to_plot", "Select Marker to Plot:", unique_markers),
       sliderInput("imgScale", "Image Scale:", min = 0.5, max = 2, value = 1, step = 0.1),
       sliderInput("pointSize", "Point Size:", min = 1, max = 5, value = 2, step = 0.1),
@@ -129,7 +146,19 @@ ui <- fluidPage(
   )
 )
 
-server <- function(input, output) {
+# Server Logic
+server <- function(input, output, session) {
+  
+  # Observer to update TMA core choices based on selected patient
+  observe({
+    patient_selected <- input$parent_filter
+    if (patient_selected != "All") {
+      tm_cores <- c("All", unique(huge_merge$TMACore[huge_merge$Patient_ID == patient_selected]))
+      updateSelectInput(session, "source_TMA", choices = tm_cores)
+    } else {
+      updateSelectInput(session, "source_TMA", choices = unique_TMACores)
+    }
+  })
   
   observeEvent(input$plotButton, {
     output$expressionPlot <- renderPlot({
@@ -156,4 +185,5 @@ server <- function(input, output) {
   })
 }
 
+# Run the Shiny App
 shinyApp(ui = ui, server = server)
